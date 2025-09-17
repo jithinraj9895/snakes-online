@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Multiplayer Snake</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        canvas {
+            border: 1px solid black;
+            display: block;
+            margin: auto;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Poppins', sans-serif;
+            background: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            /* full screen */
+        }
+
+        canvas {
+            border: 1px solid black;
+            display: block;
+            background: white;
+        }
+
+        /* Overlay container */
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+            /* ensures it stays on top */
+            pointer-events: auto;
+            /* allow clicks */
+        }
+
+        #countdown {
+            font-size: larger;
+            color: #2c3e50
+        }
+
+        #readyBtn {
+            padding: 10px 20px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        #gameOverScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <div id="countdown"></div>
+        <button id="readyBtn">Ready</button>
+    </div>
+    <div id="gameOverScreen"></div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        const socket = io("http://localhost:3000");
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const readyBtn = document.getElementById("readyBtn");
+        const countdownEl = document.getElementById("countdown");
+        const gameOverLbl = document.getElementById("gameOverScreen");
+
+
+        let gameState = null;
+
+        readyBtn.addEventListener("click", () => {
+            gameOverLbl.style.display = "none"
+            socket.emit("playerReady");
+            readyBtn.disabled = true; // lock after one click
+        });
+
+
+
+        function Ballbody(radius, color, smooth) {
+            this.x = 100;
+            this.y = 100;
+            this.radius = radius;
+            this.color = color;
+            this.smooth = smooth;
+        }
+
+        // ===== UPDATE FOLLOW LOGIC =====
+        function updateSnakeBodyForAllballs(mouseX, mouseY, BALLS) {
+            let dp = new Array(BALLS.length).fill(null).map(() => ({ x: 0, y: 0 }));
+            let smoothVar = 0.2;
+
+            BALLS[0].x += (mouseX - BALLS[0].x) * smoothVar;
+            BALLS[0].y += (mouseY - BALLS[0].y) * smoothVar;
+
+            dp[0].x = BALLS[0].x;
+            dp[0].y = BALLS[0].y;
+
+            for (let j = 1; j < BALLS.length; j++) {
+                const dx = BALLS[j - 1].x - BALLS[j].x;
+                const dy = BALLS[j - 1].y - BALLS[j].y;
+                const angle = Math.atan2(dy, dx);
+
+                dp[j].x = BALLS[j - 1].x - BALLS[j].radius * Math.cos(angle);
+                dp[j].y = BALLS[j - 1].y - BALLS[j].radius * Math.sin(angle);
+
+                BALLS[j].x += (dp[j].x - BALLS[j].x) * smoothVar;
+                BALLS[j].y += (dp[j].y - BALLS[j].y) * smoothVar;
+            }
+        }
+
+        // ===== INPUT =====
+
+        canvas.addEventListener("mousemove", (event) => {
+            const rect = canvas.getBoundingClientRect();
+            let mouse = {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top
+            };
+            socket.emit("updateMouse", mouse);
+        });
+
+
+        canvas.addEventListener("mousemove", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouse = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        });
+
+        // ===== RENDER =====
+        function renderGame() {
+            if (!gameState) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw food
+            ctx.fillStyle = "grey";
+            ctx.beginPath();
+            ctx.arc(gameState.food.x, gameState.food.y, gameState.food.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw players
+            for (let id in gameState.players) {
+                const player = gameState.players[id];
+
+                // Update snake following
+                updateSnakeBodyForAllballs(player.mouse.x, player.mouse.y, player.snakeBody);
+
+                for (let ball of player.snakeBody) {
+                    drawCircleBody(ball);
+                }
+
+                ctx.fillStyle = "black";
+                ctx.fillText(`P${id.substring(0, 4)}: ${player.score}`, player.snakeBody[0].x, player.snakeBody[0].y - 20);
+            }
+        }
+
+        function drawCircleBody(player) {
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 0.2;
+            ctx.stroke();
+            ctx.closePath();
+
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = player.color;
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        // ===== SOCKET EVENTS =====
+        socket.on("init", (state) => {
+            gameState = state;
+        });
+
+        socket.on("state", (state) => {
+            gameState = state;
+            renderGame();
+        });
+
+        socket.on("countdown", (seconds) => {
+            countdownEl.textContent = `Game starts in: ${seconds}`;
+        });
+
+        socket.on("gameStart", () => {
+            countdownEl.textContent = "Go!";
+            setTimeout(() => countdownEl.textContent = "", 1000);
+            readyBtn.style.display = "none"; // hide button once game starts
+        });
+
+        socket.on("timerUpdate", (timeLeft) => {
+            countdownEl.textContent = `Time left: ${timeLeft}s`;
+        });
+
+        socket.on("gameOver", (scores) => {
+            gameOverLbl.style.display = "block";
+
+            const me = scores.find(s => s.id === socket.id);
+
+            // Find highest score
+            const maxScore = Math.max(...scores.map(s => s.score));
+
+            if (me) {
+                resultText = me.score === maxScore ? "YOU WIN 🎉" : "YOU LOSE 😢";
+            } else {
+                resultText = "You were not in this round.";
+            }
+
+            gameOverLbl.innerHTML = `
+                    <h1>${resultText}</h1>
+                    ${me ? `<p>score: ${me.score}</p>` : ""}
+                `;
+            readyBtn.style.display = "inline-block";
+            readyBtn.disabled = false; // allow new round
+        });
+
+    </script>
+</body>
+
+</html>
