@@ -208,8 +208,8 @@ function startGameTimer() {
 // Broadcast game state to all clients
 setInterval(() => {
     updateGame();
-    io.emit("state", gameState);
-}, 1000 / 30);
+    io.emit("stateUpdate", buildStateUpdate());
+}, 1000 / 15);
 
 
 server.listen(PORT, () =>
@@ -221,6 +221,18 @@ server.listen(PORT, () =>
 function getRandomColor() {
     const colors = ["red", "blue", "green", "purple", "orange"];
     return colors[Math.floor(Math.random() * colors.length)];
+}
+
+function buildStateUpdate() {
+    return {
+        players: Object.values(gameState.players).map(p => ({
+            id: p.id,
+            head: { x: p.snakeBody[0].x, y: p.snakeBody[0].y }, // only head position
+            score: p.score,
+            color: p.snakeBody[0].color
+        })),
+        food: gameState.food
+    };
 }
 
 

@@ -140,33 +140,42 @@
             const mouse = { x: e.clientX - rect.left, y: e.clientY - rect.top };
         });
 
-        // ===== RENDER =====
+        // Smoothly move each snake toward the target head position
         function renderGame() {
-            if (!gameState) return;
-
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Draw food
-            ctx.fillStyle = "grey";
-            ctx.beginPath();
-            ctx.arc(gameState.food.x, gameState.food.y, gameState.food.radius, 0, Math.PI * 2);
-            ctx.fill();
+            // Food
+            if (food) {
+                ctx.fillStyle = "grey";
+                ctx.beginPath();
+                ctx.arc(food.x, food.y, food.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
-            // Draw players
-            for (let id in gameState.players) {
-                const player = gameState.players[id];
+            // Players
+            for (let id in players) {
+                const player = players[id];
+                const head = player.snakeBody[0];
 
-                // Update snake following
-                updateSnakeBodyForAllballs(player.mouse.x, player.mouse.y, player.snakeBody);
+                // Interpolate head toward target
+                head.x += (player.targetX - head.x) * 0.2;
+                head.y += (player.targetY - head.y) * 0.2;
 
+                // Update rest of snake locally
+                updateSnakeBodyForAllballs(head.x, head.y, player.snakeBody);
+
+                // Draw snake
                 for (let ball of player.snakeBody) {
                     drawCircleBody(ball);
                 }
 
                 ctx.fillStyle = "black";
-                ctx.fillText(`P${id.substring(0, 4)}: ${player.score}`, player.snakeBody[0].x, player.snakeBody[0].y - 20);
+                ctx.fillText(`P${id.substring(0, 4)}: ${player.score}`, head.x, head.y - 20);
             }
+
+            requestAnimationFrame(renderGame);
         }
+
 
         function drawCircleBody(player) {
             ctx.beginPath();
@@ -183,14 +192,41 @@
             ctx.closePath();
         }
 
-        // ===== SOCKET EVENTS =====
-        socket.on("init", (state) => {
-            gameState = state;
-        });
 
-        socket.on("state", (state) => {
-            gameState = state;
-            renderGame();
+
+        let players = {};
+        let food = null;
+
+        // Handle updates from server
+        socket.on("stateUpdate", (state) => {
+            food = state.food;
+
+            state.players.forEach(update => {
+                if (!players[update.id]) {
+                    // Initialize snake with 1 ball (head)
+                    players[update.id] = {
+                        snakeBody: [new Ballbody(15, update.color, 0.2)],
+                        score: update.score,
+                        targetX: update.head.x,
+                        targetY: update.head.y
+                    };
+                } else {
+                    let p = players[update.id];
+                    p.targetX = update.head.x;
+                    p.targetY = update.head.y;
+                    p.score = update.score;
+
+                    // 👇 Growth tied to score
+                    let targetLength = 1 + p.score; // 1 head + score
+                    while (p.snakeBody.length < targetLength) {
+                        let last = p.snakeBody[p.snakeBody.length - 1];
+                        p.snakeBody.push(new Ballbody(15, update.color, 0.2, last.x, last.y));
+                    }
+                    while (p.snakeBody.length > targetLength) {
+                        p.snakeBody.pop();
+                    }
+                }
+            });
         });
 
         socket.on("countdown", (seconds) => {
@@ -228,6 +264,8 @@
             readyBtn.style.display = "inline-block";
             readyBtn.disabled = false; // allow new round
         });
+
+        renderGame();
 
     </script>
 </body>
