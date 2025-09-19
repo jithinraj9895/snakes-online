@@ -134,12 +134,6 @@
             socket.emit("updateMouse", mouse);
         });
 
-
-        canvas.addEventListener("mousemove", (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const mouse = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-        });
-
         // Smoothly move each snake toward the target head position
         function renderGame() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -200,7 +194,14 @@
         // Handle updates from server
         socket.on("stateUpdate", (state) => {
             food = state.food;
-
+            // Remove ghosts: keep only players that exist in server update
+            const newIds = state.players.map(p => p.id);
+            for (let id in players) {
+                if (!newIds.includes(id)) {
+                    delete players[id];
+                }
+            }
+            
             state.players.forEach(update => {
                 if (!players[update.id]) {
                     // Initialize snake with 1 ball (head)
